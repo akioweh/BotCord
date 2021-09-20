@@ -27,8 +27,6 @@ def guild_admin_or_perms(**perms):
 def has_global_perms(**perms):
     def predicate(ctx: Context):
         invalid = set(perms) - set(ctx.bot.configs['permissions'])
-        print(set(perms))
-        print(set(ctx.bot.configs['permissions']))
         if invalid:
             raise TypeError(f'Permission(s) {invalid} not found in Global Permissions.')
 
@@ -46,8 +44,6 @@ def has_custom_perms(**perms):
     def predicate(ctx: Context):
         guild = ctx.guild
         invalid = set(perms) - set(ctx.bot.guild_config(guild))
-        print(set(perms))
-        print(set(ctx.bot.configs['permissions']))
         if invalid:
             raise TypeError(f'Permission(s) {invalid} not found in Global Permissions.')
 

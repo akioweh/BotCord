@@ -55,13 +55,57 @@ class BotClient(commands.Bot):
             self.load_extension(extension)
 
     async def _init(self) -> bool:
-        if self.initialized:
+        try:
+            if self.initialized:
+                return False
+            await self.validate_guild_configs()
+            self.save_guild_configs()
+        except Exception:
+            raise
+        finally:
+            await self.change_presence(activity=self.__activity, status=self.__status)
+            self.initialized = True
+            log('Bot finished Initializing')
+            return True
+
+    @staticmethod
+    async def blocked_check(ctx: commands.Context):
+        if ctx.cog:
+            cconf = getattr('config', ctx.cog, dict())
+            cblocked = getattr(cconf, 'blocked_users', dict())
+            if ctx.author.id in cblocked:
+                return BotClient._blocked_check_helper(ctx, cblocked, scope='c')
+
+        if ctx.guild:
+            bot: 'BotClient' = ctx.bot
+            gconf = bot.guild_config(ctx.guild)
+            gblocked = getattr(gconf, 'blocked_users', dict())
+            if ctx.author.id in gblocked:
+                return BotClient._blocked_check_helper(ctx, gblocked, scope='g')
+
+        if 1:
+            bot: 'BotClient' = ctx.bot
+            conf = bot.configs
+            blocked = getattr(conf, 'blocked_users', dict())
+            if ctx.author.id in conf['blocked_users']:
+                return BotClient._blocked_check_helper(ctx, blocked, scope='a')
+
+        return True
+
+    @staticmethod
+    def _blocked_check_helper(ctx: commands.Context, blocked_entires: list, scope='a'):
+        if scope not in ('a', 'g', 'c'):
+            raise ValueError(f'Scope parameter must be either a, g, or c, not {scope}')
+        if ctx.command.name in blocked_entires:
             return False
-        await self.validate_guild_configs()
-        self.save_guild_configs()
-        await self.change_presence(activity=self.__activity, status=self.__status)
-        self.initialized = True
-        log('Bot finished Initializing')
+        if any(i.name in blocked_entires for i in ctx.invoked_parents):
+            return False
+        if 'ALL' in blocked_entires:
+            return False
+        if scope in ('a', 'g') and ctx.cog.qualified_name in blocked_entires:
+            return False
+        if scope == 'a' and ctx.guild in blocked_entires:
+            return False
         return True
 
     @staticmethod
@@ -271,6 +315,11 @@ class BotClient(commands.Bot):
 
     # noinspection SpellCheckingInspection
     async def validate_guild_configs(self):
+        def invites(g):
+            try:
+                return g.invites()
+            except discord.Forbidden:
+                return []
         # all_exts = set(self.extensions.keys())
         # For each guild config...
         for guild_id in self.guild_configs.keys():
@@ -285,7 +334,7 @@ class BotClient(commands.Bot):
                 # Update guild name and invite
                 self.guild_configs[guild_id]['guild']['name'] = guild.name
 
-                perm_invites = [invite for invite in await guild.invites() if not invite.max_age and not invite.max_uses and not invite.revoked]
+                perm_invites = [invite for invite in await invites(guild) if not invite.max_age and not invite.max_uses and not invite.revoked]
                 good_invites = [invite for invite in perm_invites if not invite.temporary]
                 if good_invites is None:
                     good_invites = perm_invites

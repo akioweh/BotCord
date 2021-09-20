@@ -2,7 +2,7 @@ import os
 
 from discord.ext.commands import Cog as Cog_
 
-from botcord.configs import YAML
+from botcord.configs import YAML, recursive_update
 
 
 # noinspection PyAttributeOutsideInit
@@ -18,8 +18,13 @@ class Cog(Cog_):
         with open(self._config_dir, mode='w', encoding='UTF-8') as file:
             YAML.dump(self.config, file)
 
-    def update_config(self):
+    def load_config(self):
         self._config = self._load_config()
+
+    def refresh_config(self):
+        file_conf = self._load_config()
+        recursive_update(file_conf, self.config)
+        self.save_config()
 
     def _load_config(self):
         with open(self._config_dir, mode='a+', encoding='UTF-8') as wfile:

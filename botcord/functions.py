@@ -88,7 +88,7 @@ def batch(msg: str, d="\n", length=2000):
 
 
 def _contain_arg_helper(arg: Union[Message, str], check: Union[Iterable[str], str], match_case: bool = False):
-    items = [check] if not isinstance(check, Iterable) else check
+    items = [check] if isinstance(check, str) else check
     if isinstance(arg, Message):
         string = arg.content
     elif isinstance(arg, str):
@@ -113,9 +113,7 @@ def contain_all(arg: Union[Message, str], check: Union[Iterable[str], str], matc
 
 def contain_word(arg: Union[Message, str], check: Union[Iterable[str], str], match_case: bool = False) -> bool:
     string, items = _contain_arg_helper(arg, check, match_case)
-    string = f' {string} '
-    string = re.sub(r'[^\w\s]', ' ', string)
-    return any(f' {i.strip()} ' in string for i in items)
+    return any(re.findall(rf'\b{i}\b', string, 0 if match_case else re.IGNORECASE) for i in items)
 
 
 # End
