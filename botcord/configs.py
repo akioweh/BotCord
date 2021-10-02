@@ -48,6 +48,20 @@ def load_configs(*, global_path='global_configs.yml', guild_dir='configs/'):
     return global_configs, guild_configs
 
 
+def new_guild_config(guild_id, initial_config=None, guild_dir='configs/'):
+    guild_configs_dir = os.getcwd() + '/' + guild_dir
+    config = default_guild()
+    recursive_update(config, {'guild': {'id': guild_id}})
+    if initial_config is not None:
+        recursive_update(config, initial_config)
+    try:
+        with open(f'{guild_configs_dir}{guild_id}.yml', mode='x', encoding='UTF-8') as file:
+            YAML.dump(config, file)
+    except FileExistsError:
+        raise FileExistsError(f'There already exists a config for guild {guild_id}')
+    return config
+
+
 def recursive_update(base: dict, extra: dict):
     for k, v in extra.items():
         if k in base and isinstance(base[k], dict) and isinstance(extra[k], dict):
@@ -81,5 +95,4 @@ def default_guild():
         return YAML.load(open(DEFAULT_GUILD_CONFIG_PATH, encoding='UTF-8'))
     except FileNotFoundError as e:
         raise FileNotFoundError('Could not find default Guild Configuration File.') from e
-
 # End

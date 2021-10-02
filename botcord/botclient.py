@@ -13,7 +13,7 @@ from discord.ext.commands.errors import (CommandNotFound,
                                          UserInputError,
                                          NoPrivateMessage)
 
-from .configs import load_configs, save_guild_config, save_config
+from .configs import load_configs, save_guild_config, save_config, new_guild_config
 from .functions import *
 from .utils.extensions import get_all_extensions_from
 
@@ -60,8 +60,6 @@ class BotClient(commands.Bot):
                 return False
             await self.validate_guild_configs()
             self.save_guild_configs()
-        except Exception:
-            raise
         finally:
             await self.change_presence(activity=self.__activity, status=self.__status)
             self.initialized = True
@@ -123,7 +121,7 @@ class BotClient(commands.Bot):
     def guild_config(self, guild: Union[discord.Guild, int]):
         if isinstance(guild, discord.Guild):
             guild = guild.id
-        if guild.id in self.guild_configs:
+        if guild in self.guild_configs:
             return self.guild_configs[guild]
         raise FileNotFoundError(f'No Guild configs for{guild} found.')
 
@@ -183,16 +181,16 @@ class BotClient(commands.Bot):
         pass
 
     async def on_private_channel_create(self, channel):
-        await self.on_guild_channel_create(channel)
+        pass
 
     async def on_private_channel_delete(self, channel):
-        await self.on_guild_channel_delete(channel)
+        pass
 
     async def on_private_channel_update(self, before, after):
-        await self.on_guild_channel_update(before, after)
+        pass
 
     async def on_private_channel_pins_update(self, channel, last_pin):
-        await self.on_guild_channel_pins_update(channel, last_pin)
+        pass
 
     async def on_guild_channel_create(self, channel):
         pass
@@ -305,7 +303,7 @@ class BotClient(commands.Bot):
         #  Additional logging for HTTP (networking) errors
         if isinstance(exception, discord.HTTPException):
             log(f'An API Exception has occured ({exception.code}): {exception.text}', tag='Error')
-            context.reply(f'There was an error executing the command. (API Error code: {exception.code})')
+            context.reply(f'An API error occured while executing the command. (API Error code: {exception.code})')
 
     async def on_command_completion(self, context):
         pass
@@ -313,33 +311,38 @@ class BotClient(commands.Bot):
     async def load_commands(self):
         pass
 
-    # noinspection SpellCheckingInspection
     async def validate_guild_configs(self):
-        def invites(g):
+        for guild in self.guilds:
+            # Create config for guild if doesn't exist
+            if guild.id not in self.guild_configs:
+                self.guild_configs[guild.id] = self.create_guild_config(guild)
+                print(self.guild_configs[guild.id])
+
+            # Update guild name and invite
+            self.guild_configs[guild.id]['guild']['name'] = guild.name
             try:
-                return g.invites()
+                i0: list[Optional[discord.Invite]] = await guild.invites()
             except discord.Forbidden:
-                return []
-        # all_exts = set(self.extensions.keys())
-        # For each guild config...
-        for guild_id in self.guild_configs.keys():
-            guild: discord.Guild = discord.utils.get(self.guilds, id=guild_id)
-            # Add section for each extension
-            # existing_exts = set(self.guild_configs[guild_id]['ext'].keys())
-            # missing = all_exts - existing_exts
-            # for ext in missing:
-            #     self.guild_configs[guild_id]['ext'][ext] = None
+                i0 = []
+            if i0:
+                invite = i0[0]
+                if i1 := [i for i in i0 if not i.revoked]:
+                    invite = i1[0]
+                    if i2 := [i for i in i1 if not (i.max_age and i.max_uses)]:
+                        invite = i2[0]
+                        if i3 := [i for i in i1 if not (i.max_age or i.max_uses)]:
+                            invite = i3[0]
+                            if i4 := [i for i in i2 if not i.temporary]:
+                                invite = i4[0]
+                                if i5 := [i for i in i3 if not i.temporary]:
+                                    invite = i5[0]
 
-            if guild is not None:
-                # Update guild name and invite
-                self.guild_configs[guild_id]['guild']['name'] = guild.name
+                self.guild_configs[guild.id]['guild']['invite'] = invite.url
 
-                perm_invites = [invite for invite in await invites(guild) if not invite.max_age and not invite.max_uses and not invite.revoked]
-                good_invites = [invite for invite in perm_invites if not invite.temporary]
-                if good_invites is None:
-                    good_invites = perm_invites
-                if good_invites:
-                    self.guild_configs[guild_id]['guild']['invite'] = good_invites[0].url
+    def create_guild_config(self, guild: discord.Guild):
+        if guild.id in self.guild_configs:
+            raise FileExistsError(f'There already exists a config for guild {guild.id}')
+        return new_guild_config(guild.id)
 
     def save_guild_configs(self):
         for guild, config in self.guild_configs.items():
@@ -352,7 +355,7 @@ class BotClient(commands.Bot):
         save_config(self.configs)
         self.save_guild_configs()
         await self.aiohttp_session.close()
-        # Temp hack-fix to stop aiohttp throwing errors when closing
+        # Ugly temp hack-fix to stop aiohttp spamming errors in stderr when closing because that is uglier
         sys.stderr = None
         await super().close()
 

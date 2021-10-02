@@ -1,17 +1,17 @@
 import os
 
-from discord.ext.commands import Cog as Cog_
+from discord.ext.commands import Cog as _Cog
 
 from botcord.configs import YAML, recursive_update
 
 
 # noinspection PyAttributeOutsideInit
-class Cog(Cog_):
-    def config_init(self, __file__, path='configs.yml'):
+class Cog(_Cog):
+    def config_init(self, file, path='configs.yml'):
         """PASS THE __file__ VARIABLE IN AS AN ARGUMENT FROM THE EXTENSION FILE,
         SO THE CONFIG PATH IS IN THE EXTENSION'S FOLDER AND NOT IN THE BOTCORD FILES HERE"""
-        self._config_dir = f'{os.path.dirname(os.path.abspath(__file__))}/{path}'
-        self._config = None
+        self._config_dir = f'{os.path.dirname(os.path.abspath(file))}/{path}'
+        self.load_config()
         self._configed = True
 
     def save_config(self):
@@ -39,9 +39,6 @@ class Cog(Cog_):
         if not getattr(self, '_configed', False):
             raise AttributeError(f'type {type(self)} {self.__name__} has no attribute \'config\' \n'
                                  f'NOTE: Please call \'config_init()\' if you wish to utilize config files for this Cog.')
-
-        if self._config is None:
-            self._config = self._load_config()
         return self._config
 
     def cog_unload(self):
