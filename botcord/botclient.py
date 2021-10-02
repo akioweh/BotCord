@@ -316,7 +316,6 @@ class BotClient(commands.Bot):
             # Create config for guild if doesn't exist
             if guild.id not in self.guild_configs:
                 self.guild_configs[guild.id] = self.create_guild_config(guild)
-                print(self.guild_configs[guild.id])
 
             # Update guild name and invite
             self.guild_configs[guild.id]['guild']['name'] = guild.name
