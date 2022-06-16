@@ -1,17 +1,19 @@
 import asyncio
 import importlib
 import os
-import sys
-from typing import Any, Dict, Hashable, List
+from contextlib import suppress
+from typing import Any, Dict, Hashable, List, Optional, Union
 
-import discord
+import sys
 from aiohttp import ClientSession
+from discord import Activity, Forbidden, Guild, HTTPException, Intents, Invite, Message, Status
 from discord.ext import commands
 from discord.ext.commands.errors import (CheckFailure, CommandNotFound, CommandOnCooldown, DisabledCommand,
                                          NoPrivateMessage, UserInputError)
 
 from .configs import load_configs, new_guild_config, save_config, save_guild_config
 from .functions import *
+from .utils.errors import protect
 from .utils.extensions import get_all_extensions_from
 
 # Fix to stop aiohttp spamming errors in stderr when closing because that is uglier
@@ -21,7 +23,7 @@ if sys.version_info[0] == 3 and sys.version_info[1] >= 8 and sys.platform.starts
 
 class BotClient(commands.Bot):
     initialized: bool
-    latest_message: Optional[discord.Message]
+    latest_message: Optional[Message]
     configs: Dict[Hashable, Any]
     guild_configs: Union[Dict[int, dict], tuple]
     prefix: List[str]
@@ -35,11 +37,11 @@ class BotClient(commands.Bot):
         self.__status = options.pop('status', None)
         self.__activity = options.pop('activity', None)
         super().__init__(**options,
-                         activity=discord.Activity(name='...Bot Initializing...', type=0),
-                         status=discord.Status('offline'),
+                         activity=Activity(name='...Bot Initializing...', type=0),
+                         status=Status('offline'),
                          command_prefix=prefix_check,
                          max_messages=global_configs['bot']['message_cache'],
-                         intents=discord.Intents.all())
+                         intents=Intents.all())
         self.latest_message = None
         self.aiohttp_session = ClientSession(loop=self.loop)
 
@@ -57,16 +59,16 @@ class BotClient(commands.Bot):
             self.load_extension(extension)
 
     async def _init(self) -> bool:
-        try:
+        with protect():
             if self.initialized:
                 return False
             await self.validate_guild_configs()
             self.save_guild_configs()
-        finally:
-            await self.change_presence(activity=self.__activity, status=self.__status)
-            self.initialized = True
-            log('Bot finished Initializing')
-            return True
+
+        await self.change_presence(activity=self.__activity, status=self.__status)
+        self.initialized = True
+        log('Bot finished Initializing')
+        return True
 
     @staticmethod
     async def blocked_check(ctx: commands.Context):
@@ -120,14 +122,14 @@ class BotClient(commands.Bot):
     async def mentioned_or_in_prefix(bot, message):
         return commands.when_mentioned_or(*await BotClient.in_prefix(bot, message))(bot, message)
 
-    def guild_config(self, guild: Union[discord.Guild, int]):
-        if isinstance(guild, discord.Guild):
+    def guild_config(self, guild: Union[Guild, int]):
+        if isinstance(guild, Guild):
             guild = guild.id
         if guild in self.guild_configs:
             return self.guild_configs[guild]
         raise FileNotFoundError(f'No Guild configs for{guild} found.')
 
-    def ext_guild_config(self, ext: str, guild: discord.Guild):
+    def ext_guild_config(self, ext: str, guild: Guild):
         if guild.id in self.guild_configs:
             config = self.guild_configs[guild.id]
             if ext in config['ext']:
@@ -140,7 +142,7 @@ class BotClient(commands.Bot):
             channel = self.latest_message.channel
         try:
             await channel.send(message)
-        except discord.Forbidden:
+        except Forbidden:
             pass
 
     async def on_ready(self):
@@ -295,8 +297,9 @@ class BotClient(commands.Bot):
         elif isinstance(exception, NoPrivateMessage):
             await context.reply('This does not work in Direct Messages!', delete_after=10)
         elif isinstance(exception, CommandOnCooldown):
-            await context.reply(f'Command is on cooldown. Please try again in {exception.retry_after} seconds.',
-                                delete_after=10)
+            with suppress(Forbidden):
+                await context.reply(f'Command is on cooldown. Please try again in {exception.retry_after} seconds.',
+                                    delete_after=10)
         elif isinstance(exception, UserInputError):
             await context.reply('Invalid inputs.', delete_after=10)
         else:
@@ -304,7 +307,7 @@ class BotClient(commands.Bot):
             await super().on_command_error(context, exception)
 
         #  Additional logging for HTTP (networking) errors
-        if isinstance(exception, discord.HTTPException):
+        if isinstance(exception, HTTPException):
             log(f'An API Exception has occurred ({exception.code}): {exception.text}', tag='Error')
             context.reply(f'An API error occurred while executing the command. (API Error code: {exception.code})')
 
@@ -323,8 +326,8 @@ class BotClient(commands.Bot):
             # Update guild name and invite
             self.guild_configs[guild.id]['guild']['name'] = guild.name
             try:
-                i0: list[Optional[discord.Invite]] = await guild.invites()
-            except discord.Forbidden:
+                i0: list[Optional[Invite]] = await guild.invites()
+            except Forbidden:
                 i0 = []
             if i0:
                 invite = i0[0]
@@ -341,7 +344,7 @@ class BotClient(commands.Bot):
 
                 self.guild_configs[guild.id]['guild']['invite'] = invite.url
 
-    def create_guild_config(self, guild: discord.Guild):
+    def create_guild_config(self, guild: Guild):
         if guild.id in self.guild_configs:
             raise FileExistsError(f'There already exists a config for guild {guild.id}')
         return new_guild_config(guild.id)
