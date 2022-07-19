@@ -1,7 +1,7 @@
-from asyncio import WindowsSelectorEventLoopPolicy as Wsep, set_event_loop_policy as selp
 from contextlib import suppress
 from importlib import import_module
 from os import getcwd
+from traceback import print_exception
 from typing import Optional
 
 from aiohttp import ClientSession
@@ -9,7 +9,7 @@ from discord import Activity, Forbidden, Guild, HTTPException, Intents, Invite, 
 from discord.ext import commands
 from discord.ext.commands.errors import (CheckFailure, CommandNotFound, CommandOnCooldown, DisabledCommand,
                                          NoPrivateMessage, UserInputError)
-from sys import __stdout__, platform as __platform__, version_info as __version_info__
+from sys import platform as __platform__, stderr, stdout, version_info as __version_info__
 
 from .configs import ConfigDict, load_configs, new_guild_config, save_config, save_guild_config
 from .functions import *
@@ -18,7 +18,8 @@ from .utils.extensions import get_all_extensions_from
 
 # Fix to stop aiohttp spamming errors in stderr when closing because that is uglier
 if __version_info__[0] == 3 and __version_info__[1] >= 8 and __platform__.startswith('win'):
-    selp(Wsep())
+    from asyncio import WindowsSelectorEventLoopPolicy, set_event_loop_policy
+    set_event_loop_policy(WindowsSelectorEventLoopPolicy())
 
 
 class BotClient(commands.Bot):
@@ -138,7 +139,7 @@ class BotClient(commands.Bot):
         raise FileNotFoundError(f'No Extension configs for guild {guild} found.')
 
     async def logm(self, message, tag="Main", sep="\n", channel=None):
-        __stdout__.write(f"[{time_str()}] [{tag}]: {message}" + sep)
+        stdout.write(f"[{time_str()}] [{tag}]: {message}" + sep)
         if not channel:
             channel = self.latest_message.channel
         try:
@@ -250,7 +251,7 @@ class BotClient(commands.Bot):
     async def on_guild_role_update(self, before, after):
         pass
 
-    async def on_guild_emojis_update(self, before, after):
+    async def on_guild_emojis_update(self, guild, before, after):
         pass
 
     async def on_guild_available(self, guild):
@@ -292,25 +293,40 @@ class BotClient(commands.Bot):
     async def on_command(self, context):
         pass
 
-    async def on_command_error(self, context, exception):
+    async def on_command_error(self, context, exception, *, fire_anyway=False):
+        if not fire_anyway:  # Normally we don't do anything here if another handler catches the error
+            if self.extra_events.get('on_command_error', None):
+                return
+            if hasattr(context.command, 'on_error'):
+                return
+            cog = context.cog
+            # hasattr check is to see if the cog error handler has been overridden with a custom method
+            if cog and hasattr(cog.cog_command_error.__func__, '__cog_special_method__'):
+                return
+
+        handled = False
         if isinstance(exception, (CommandNotFound, DisabledCommand, CheckFailure)) or (context.command is None):
-            pass
-        elif isinstance(exception, NoPrivateMessage):
+            handled = True
+        if isinstance(exception, NoPrivateMessage):
             await context.reply('This does not work in Direct Messages!', delete_after=10)
-        elif isinstance(exception, CommandOnCooldown):
+            handled = True
+        if isinstance(exception, CommandOnCooldown):
             with suppress(Forbidden):
                 await context.reply(f'Command is on cooldown. Please try again in {exception.retry_after} seconds.',
                                     delete_after=10)
-        elif isinstance(exception, UserInputError):
+            handled = True
+        if isinstance(exception, UserInputError):
             await context.reply('Invalid inputs.', delete_after=10)
-        else:
-            #  Default command error handling
-            await super().on_command_error(context, exception)
+            handled = True
 
         #  Additional logging for HTTP (networking) errors
         if isinstance(exception, HTTPException):
             log(f'An API Exception has occurred ({exception.code}): {exception.text}', tag='Error')
             context.reply(f'An API error occurred while executing the command. (API Error code: {exception.code})')
+
+        if not handled:
+            print(f'Ignoring exception in command {context.command}:', file=stderr)
+            print_exception(type(exception), exception, exception.__traceback__, file=stderr)
 
     async def on_command_completion(self, context):
         pass

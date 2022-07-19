@@ -4,7 +4,7 @@ Additional check functions to restrict command execution
 same format/usage as builtin :package:`discord.ext.commands` checks
 """
 
-from discord.ext.commands import Context, MissingPermissions, has_permissions as _has_perms, check as _to_check_func
+from discord.ext.commands import Context, MissingPermissions, check as _to_check_func, has_permissions as _has_perms
 
 
 def guild_owner_or_perms(**perms):

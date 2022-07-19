@@ -1,4 +1,4 @@
-from os.path import dirname as _dirname, abspath as _abspath
+from os.path import abspath as _abspath, dirname as _dirname
 
 from discord.ext.commands import Cog as _bruh_do_not_import_this_Cog
 
