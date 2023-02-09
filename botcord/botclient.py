@@ -552,9 +552,7 @@ class BotClient(commands.Bot):
         # ========== Update Guild Invite Link ========== #
 
         # concurrently gather invites for speedups with multiple guilds
-        tasks = []
-        for guild in guilds:
-            tasks.append(guild.invites())
+        tasks = [guild.invites() for guild in guilds]
         guild_invites = await gather(*tasks, return_exceptions=True)
 
         for guild, invites in zip(guilds, guild_invites):
@@ -716,7 +714,7 @@ class BotClient(commands.Bot):
         self._connection.clear()
 
     async def __aenter__(self):
-        log('Performing Asynchonous Initialization...', tag='INIT')
+        log('Performing Asynchronous Initialization...', tag='INIT')
 
         await self._async_setup_hook()
         with protect():
