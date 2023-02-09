@@ -555,15 +555,17 @@ class BotClient(commands.Bot):
         tasks = []
         for guild in guilds:
             tasks.append(guild.invites())
-        guild_invites = await gather(*tasks)
+        guild_invites = await gather(*tasks, return_exceptions=True)
 
         for guild, invites in zip(guilds, guild_invites):
             self.guild_configs[guild.id]['guild']['name'] = guild.name
-            try:
-                i0: list[Optional[Invite]] = invites
-            except Forbidden:
-                i0 = []
-            if i0:
+            i0: list[Optional[Invite]] | Exception = invites
+            if isinstance(i0, Exception):
+                if isinstance(i0, Forbidden):  # bot doesn't have permission to view invites
+                    self.guild_configs[guild.id]['guild']['invite'] = None
+                else:  # something went horribly wrong
+                    raise i0
+            elif i0:
                 invite = i0[0]
                 if i1 := [i for i in i0 if not i.revoked]:
                     invite = i1[0]
@@ -577,6 +579,9 @@ class BotClient(commands.Bot):
                                     invite = i5[0]
 
                 self.guild_configs[guild.id]['guild']['invite'] = invite.url
+
+            else:
+                self.guild_configs[guild.id]['guild']['invite'] = None
 
         # ========== Create Config Field for each Extension ========== #
 
