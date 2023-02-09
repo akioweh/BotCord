@@ -24,6 +24,7 @@ from .configs import ConfigDict, default_guild, load_configs, new_guild_config, 
 from .errors import ExtensionDisabledGuild
 from .ext.commands import Cog as _Cog
 from .functions import *
+from .help import HelpCommand
 from .types import Param, SupportsWrite, T
 from .utils.errors import protect
 from .utils.extensions import get_all_extensions_from, parent_package_path
@@ -94,6 +95,7 @@ class BotClient(commands.Bot):
                          activity=Activity(name='...Bot Initializing...', type=0),
                          status=Status('offline'),
                          command_prefix=prefix_check,
+                         help_command=HelpCommand(),
                          max_messages=self.configs['bot']['message_cache'],
                          intents=options.pop('intents', Intents.all()))
 
@@ -199,15 +201,16 @@ class BotClient(commands.Bot):
 
     @property
     def ext_module(self) -> ModuleType:
-        """reimports root extension package;
+        """**REimports** root extension package and returns it;
         runs synchronously..."""
         invalidate_caches()
         self._ext_module = import_module(self.configs['bot']['extension_dir'], getcwd())
         return self._ext_module
 
-    async def load_extensions_in(self, package: ModuleType):
+    async def load_extensions_in(self, package: ModuleType) -> int:
         """Load all valid extensions within a Python package.
-        Recursively crawls through all subdirectories"""
+        Recursively crawls through all subdirectories
+        :return: the number of extensions loaded"""
         extensions = list(get_all_extensions_from(package))
         results = await gather(*(self.load_extension(ext) for ext in extensions), return_exceptions=True)
         n = 0
@@ -221,7 +224,7 @@ class BotClient(commands.Bot):
         return n
 
     @staticmethod
-    async def blocked_check(ctx: commands.Context):
+    async def blocked_check(ctx: commands.Context) -> bool:
         if ctx.cog:
             cconf = getattr(ctx.cog, 'local_config', dict())
             cblocked = getattr(cconf, 'blocked_users', dict())
@@ -245,7 +248,7 @@ class BotClient(commands.Bot):
         return True
 
     @staticmethod
-    def _blocked_check_helper(ctx: commands.Context, blocked_entries: list, scope='a'):
+    def _blocked_check_helper(ctx: commands.Context, blocked_entries: list, scope='a') -> bool:
         if scope not in ('a', 'g', 'c'):
             raise ValueError(f'Scope parameter must be either a, g, or c, not {scope}')
 
@@ -262,7 +265,7 @@ class BotClient(commands.Bot):
         return True
 
     @staticmethod
-    async def in_prefix(bot, message):
+    async def in_prefix(bot, message) -> list[str]:
         guild_id = getattr(message.guild, 'id', None)
         if (guild_id is not None) and (guild_id in bot.guild_prefixes):
             if bot.guild_prefixes[guild_id] and message.content.startswith(bot.guild_prefixes[guild_id]):
@@ -270,7 +273,7 @@ class BotClient(commands.Bot):
         return bot.prefix
 
     @staticmethod
-    async def mentioned_or_in_prefix(bot, message):
+    async def mentioned_or_in_prefix(bot, message) -> list[str]:
         return commands.when_mentioned_or(*await BotClient.in_prefix(bot, message))(bot, message)
 
     async def logm(self, message: str, /, tag: str = 'Main', end: str = '\n', time: bool = True, *,
@@ -372,6 +375,9 @@ class BotClient(commands.Bot):
         # custom event dispatched when a Member has just completed membership verification/screening
         if before.pending and not after.pending:
             self.dispatch('verification_complete', after)
+
+    async def on_presence_update(self, before, after):
+        pass
 
     async def on_verification_complete(self, member):  # custom event from above
         pass
@@ -523,10 +529,12 @@ class BotClient(commands.Bot):
         return any(message.content.startswith(i) for i in await self.command_prefix(self, message))
 
     async def validate_guild_configs(self):
-        """"Validates" guild configs by updating any dynamic settings
+        """
+        "Validates" guild configs by updating any dynamic settings
         and ensuring proper format and required fields are present
 
-        Currently just updates the guild invite in the configs"""
+        Automatically ran upon bot startup
+        """
         guilds = self.guilds
 
         # ========== Basic Hard-Format Validation ========== #
@@ -591,17 +599,21 @@ class BotClient(commands.Bot):
             return self.guild_configs[guild]
         raise FileNotFoundError(f'No Guild configs for{guild} found.')
 
-    def ext_guild_config(self, ext: str, guild: Guild) -> dict:
+    def ext_guild_config(self, ext: str | ModuleType, guild: Guild) -> dict:
         """
-        Get the per-guide config for an extension.
+        Get the per-guild config for an extension.
 
-        :param ext: The extension name as a string
+        :param ext: The extension module or name as a string
         :param guild: The guild to get the config for
         """
         if guild.id in self.guild_configs:
             config = self.guild_configs[guild.id]
+            if isinstance(ext, ModuleType):
+                ext = parent_package_path(ext, self.ext_module_name)
+
             if ext in config['ext']:
                 return config['ext'][ext]
+
         raise FileNotFoundError(f'No Extension configs for guild {guild} found.')
 
     def create_guild_config(self, guild: Guild):
@@ -629,26 +641,6 @@ class BotClient(commands.Bot):
                 await self.remove_cog(cog)
 
         return n
-
-    # async def close(self):
-    #     """Do Not Override"""
-    #     await self.__close_connect__()
-    #
-    #     if self._closed:
-    #         log('close() called more than once', tag='Warning')
-    #         return
-    #
-    #     await self._connection.close()
-    #
-    #     if self.ws is not None and self.ws.open:
-    #         await self.ws.close(code=1000)
-    #
-    #     await self.http.close()
-    #
-    #     if self._ready is not MISSING:
-    #         self._ready.clear()
-    #
-    #     self.loop = MISSING
 
     async def __close_connect__(self):
         """Called before connection to Discord is closed.
@@ -694,63 +686,6 @@ class BotClient(commands.Bot):
 
         log('.......... Synchronous Shutdown Finished.', tag='SHDN')
 
-    # def _cancel_asyncio_tasks(self):
-    #     """Cancels **ALL** running and scheduled asyncio tasks.
-    #     Therefore, this method must not be a coroutine
-    #     as it would recursively cancel itself."""
-    #     tasks: set[Task]
-    #     # Get all still-running tasks
-    #     if not (tasks := {t for t in all_tasks(loop=self.loop) if not t.done()}):
-    #         return
-    #     # Try HARD to cancel ALL tasks ASAP
-    #     log(f'Cancelling {len(tasks)} lingering tasks...', tag='SHDN')
-    #     if self.DEBUG:
-    #         for task in tasks:
-    #             print(task)
-    #
-    #     async def safe_canceller(t: Task):
-    #         with protect():
-    #             if t.cancelled():
-    #                 return None
-    #             if t.done():
-    #                 return t.exception() or t.result()
-    #             t.cancel()
-    #             return await t
-    #
-    #     try:
-    #         self.loop.run_until_complete(  # coros wrapped in Task to stop DeprecationWarning
-    #                 wait_for(gather(*[self.loop.create_task(safe_canceller(t)) for t in tasks], return_exceptions=True),
-    #                          timeout=10)
-    #         )
-    #     except TimeoutError:
-    #         log('Timed out waiting for lingering tasks to cancel (!!!)', tag='SHDN')
-    #         pass
-    #     except CancelledError:
-    #         log('Got cancelled while waiting on the cancelled to get cancelled...', tag='WTF')
-    #
-    #     log('All lingering tasks cancelled.', tag='SHDN')
-
-    # def stop_async_loop(self, *_):
-    #     """Completely and forcibly stops the asyncio event loop.
-    #     Catastrophic if called in the middle of an active connection."""
-    #     log('Stopping asyncio event loop...', tag='SHDN')
-    #     with protect():
-    #         self.loop.run_until_complete(self.__shutdown_async__())
-    #
-    #     if self.loop.is_running():  # if the loop is still running, cancel all tasks
-    #         with protect():
-    #             self._cancel_asyncio_tasks()
-    #         with protect():
-    #             self.loop.run_until_complete(self.loop.shutdown_asyncgens())
-    #
-    #     if self.loop.is_running():
-    #         self.loop.stop()
-    #         log('Waiting for asyncio event loop to stop...', tag='SHDN')
-    #     while self.loop.is_running():
-    #         pass
-    #
-    #     log('Asyncio event loop stopped.', tag='SHDN')
-
     def clear(self):
         """Resets all flags, clears all caches,
         and resets all states of the bot...
@@ -774,11 +709,6 @@ class BotClient(commands.Bot):
         self._closed = False
         self._ready.clear()
         self._connection.clear()
-
-    # async def start(self, token: str, *, reconnect: bool = True):
-    #     """Do Not Override"""
-    #     await self.login(token)
-    #     await self.connect(reconnect=reconnect)
 
     async def __aenter__(self):
         log('Performing Asynchonous Initialization...', tag='INIT')
@@ -805,7 +735,7 @@ class BotClient(commands.Bot):
         else:
             raise RuntimeError('Impossible. Unexpected __aexit__ call')
 
-        log('Performing Asynchronous Shutdown...' ,tag='SHDN')
+        log('Performing Asynchronous Shutdown...' , tag='SHDN')
 
         if not self.is_closed():
             with protect():
