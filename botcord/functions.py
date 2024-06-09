@@ -1,6 +1,6 @@
 """All kinds of highly generic simple utility functions"""
-
-from collections.abc import Generator
+import re
+from collections.abc import Generator, MutableMapping, Mapping
 from datetime import datetime
 from re import IGNORECASE, findall as _re_findall
 from sys import stdout as __stdout__
@@ -202,26 +202,100 @@ def contain_word(msg: Message | str, check: Iterable[str] | str, match_case: boo
     return any(_re_findall(rf'\b{i}\b', string, 0 if match_case else IGNORECASE) for i in items)
 
 
-def recursive_update(base: dict, extra: dict, type_safe: bool = True) -> None:
+def recursive_update(base: MutableMapping, extra: Mapping, type_safe: bool = True, allow_new: bool = False) -> None:
     """Recursively updates base dictionary with extra data.
 
     **updates** ``base`` **IN PLACE**
 
     :param base: base dictionary to be updated
-    :param extra: dictionary similar to base, but with extra data
-    :param type_safe: if True (default), will raise TypeError if a key in base and extra have different types.
-    None values in base are allowed to be overwritten by any type.
+    :param extra: dictionary similar to ``base``, but with extra data
+    :param type_safe: if True (default), will raise TypeError if a key in ``base`` and extra have different types.
+    None values in ``base`` are allowed to be overwritten by any type.
+    :param allow_new: if True, will allow new keys in extra to be added to ``base``. Default is False.
     """
-    for k, v in extra.items():
-        base_type = type(base[k])
-        new_type = type(extra[k])
-        if k in base and base_type == new_type == dict:  # if both are dicts, recurse
-            recursive_update(base[k], extra[k])
-        else:  # otherwise, just overwrite
-            if type_safe and base[k] is not None and base_type != new_type:
-                raise TypeError(f'Type mismatch while merging dicts: {base_type} != {new_type} at key "{k}"')
-            base[k] = extra[k]
+    if not isinstance(base, MutableMapping):
+        raise TypeError(f'base must be a MutableMapping, not {type(base).__name__}')
+    if not isinstance(extra, Mapping):
+        raise TypeError(f'extra must be a Mapping, not {type(extra).__name__}')
+
+    for k, v_e in extra.items():
+        if k in base:  # update key value
+            v_b = base[k]
+            t_b = type(v_b)
+            t_e = type(v_e)
+
+            if k in base and issubclass(t_b, Mapping) and issubclass(t_e, Mapping):  # if both are dicts, recurse
+                recursive_update(v_b, v_e, type_safe, allow_new)
+            else:  # otherwise, overwrite value
+                if type_safe and v_b is not None and not (t_b == t_e or issubclass(t_e, t_b)):  # type mismatch
+                    raise TypeError(f'Type mismatch while merging dicts: {t_b} != {t_e} at key "{k}"')
+                base[k] = v_e
+
+        else:  # create new key
+            if not allow_new:
+                raise KeyError(f'Key "{k}" not found in base dict')
+            base[k] = v_e
+
+
+def smart_time_s(seconds: int | float) -> str:
+    """Formats time in seconds into a succinct word-based string.
+
+    Formatting, if time is...:
+        - =1 -> "1 second"
+        - <60 -> "x seconds"
+        - =60 -> "1 minute"
+        - 60x -> "x minutes"
+        - 60x + 1 -> "x minutes and 1 second"
+        - 60x + y -> "x minutes and y seconds"
+
+    If time is >= 3600, will also include hours.
+    If time is >= 86400, will also include days.
+    If time is >= 31556952, will also include years.
+    If time is >= 31556952000, will also include centuries.
+
+    If time is a ``float``, will include milliseconds (even if it is a whole number).
+    """
+
+    # break down the time into its components
+    if isinstance(seconds, float):
+        seconds = round(seconds, 3)  # round to the nearest millisecond
+        ms = round(seconds * 1000 % 1000)
+        seconds = int(seconds)
+    else:
+        ms = None
+    minutes, seconds = divmod(seconds, 60)
+    hours, minutes = divmod(minutes, 60)
+    days, hours = divmod(hours, 24)
+    years, days = divmod(days, 365)
+    centuries, years = divmod(years, 100)
+
+    # build string
+    output = ''
+    if centuries:
+        output += f'{centuries} {"century" if centuries == 1 else "centuries"}, '
+    if years:
+        output += f'{years} year{"" if years == 1 else "s"}, '
+    if days:
+        output += f'{days} day{"" if days == 1 else "s"}, '
+
+    if hours:
+        output += f'{hours} hour{"" if hours == 1 else "s"} '
+    if minutes or (hours and ms is not None):
+        output += f'{minutes} minute{"" if minutes == 1 else "s"} '
+    if seconds or not output or ('minute' in output and ms is not None):
+        output += f'{seconds} second{"" if seconds == 1 else "s"} '
+    if ms is not None:
+        output += f'{ms} millisecond{"" if ms == 1 else "s"} '
+
+    # remove trailing comma and space
+    output = output.rstrip(', ').strip()
+
+    # add 'and' if long output
+    if len(re.findall(r'\d+', output)) > 3:
+        output = re.sub(r'(\d+)(\s\w+)$', r'and \1\2', output)
+
+    return output
 
 
 __all__ = ['removesuffix', 'removeprefix', 'time_str', 'log', 'to_int', 'to_flt', 'clean_return', 'load_list',
-           'save_list', 'batch', 'contain_any', 'contain_all', 'contain_word', 'recursive_update']
+           'save_list', 'batch', 'contain_any', 'contain_all', 'contain_word', 'recursive_update', 'smart_time_s']
